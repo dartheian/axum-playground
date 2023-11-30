@@ -2,21 +2,20 @@ use axum::error_handling::HandleErrorLayer;
 use axum::http::{Request, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
-use axum::{BoxError, Json, Router, Server};
+use axum::{BoxError, Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs::{read_to_string, write};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::time::Duration;
+use tokio::net::TcpListener;
 use tokio::time::sleep;
 use tower::ServiceBuilder;
 use tower_http::request_id::{MakeRequestId, RequestId};
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tower_http::ServiceBuilderExt;
-use tracing::info;
 use tracing::instrument;
-use tracing_subscriber;
 use tracing_subscriber::EnvFilter;
 use ulid::Ulid;
 
@@ -73,14 +72,6 @@ async fn avro_to_json() -> Json<Value> {
         .map(|output| serde_json::to_value(&output).unwrap())
         .collect::<Value>();
     Json(data)
-}
-
-// This function will complete when Ctrl-C is pressed and the platform signal is sent to the app.
-// We use it as an example of handling graceful shutdown.
-
-async fn shutdown_signal() {
-    tokio::signal::ctrl_c().await.unwrap();
-    info!("Ctr-C received: gracefully shutting down...");
 }
 
 // This function will handle the application errors and converting them to HTTP status codes.
@@ -148,10 +139,9 @@ async fn main() {
                 .propagate_x_request_id(),
         );
 
-    Server::bind(&SocketAddr::from(([127, 0, 0, 1], 3000)))
-        .serve(router.into_make_service())
-        // We inject the Ctrl-C handling function using it for graceful shutdown
-        .with_graceful_shutdown(shutdown_signal())
+    let listener = TcpListener::bind(&SocketAddr::from(([127, 0, 0, 1], 3000)))
         .await
         .unwrap();
+
+    axum::serve(listener, router).await.unwrap();
 }
